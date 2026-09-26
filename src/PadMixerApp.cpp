@@ -24,17 +24,17 @@
 #endif
 
 #include "crosspad/app/AppRegistrar.hpp"
-#include "crosspad/instrument/PitchedInstrument.hpp"
 #include "crosspad/kit/IKitManager.hpp"
 #include "crosspad/kit/KitInfo.hpp"
+#include "crosspad/pad/IPadMix.hpp"
 #include "crosspad/pad/PadManager.hpp"
 #include "crosspad/platform/PlatformServices.hpp"
 #include "crosspad-gui/widgets/gui_helpers.h"
-#include "crosspad-sampler/SamplerPlatformCallbacks.hpp"
 
 #include "lvgl.h"
 
 #include <memory>
+#include <string>
 
 // Encoder navigation is an embedded-only concern -- the simulator drives the UI
 // with a pointer. Snapshot whichever group was active before the app opened and
@@ -70,6 +70,10 @@ struct Channel {
 
 Channel s_ch[kChannels];
 lv_obj_t* s_root = nullptr;
+lv_obj_t* s_title = nullptr;
+/// The kit the faders show, by path: a kit swapped while the app is open
+/// must not leave sixteen faders moving the old kit's numbers.
+std::string s_kitPath;
 lv_timer_t* s_timer = nullptr;
 int s_selected = -1;
 
@@ -110,13 +114,8 @@ void apply_volume(int idx, int32_t vol)
     crosspad::Pad& pad = kit->pads[idx];
     pad.volume = vol;
     pad.dirtyModified = true;
-    if (kit->engine == crosspad::KitEngine::Pitched) {
-        if (auto* inst = crosspad::getPlatformServices().pitchedInstrument) {
-            inst->setPadMix((uint8_t)idx, pad.volume, pad.pan);
-        }
-    } else {
-        const auto& cb = crosspad_sampler::sampler_get_platform_callbacks();
-        if (cb.player.setVolume) cb.player.setVolume((uint8_t)idx, pad.volume);
+    if (auto* mix = crosspad::getPlatformServices().padMix) {
+        mix->setPadMix((uint8_t)idx, pad.volume, pad.pan);
     }
 }
 
@@ -134,8 +133,31 @@ void fader_focused_cb(lv_event_t* e)
     select_channel((int)(intptr_t)lv_event_get_user_data(e));
 }
 
+/// Faders, labels and title from the current kit's pads.
+void sync_from_kit()
+{
+    crosspad::KitInfo* kit = current_kit();
+    s_kitPath = kit ? kit->path : std::string();
+    if (s_title) lv_label_set_text(s_title, kit ? kit->name.c_str() : "No kit");
+    const int32_t max = volume_max(kit);
+    for (int i = 0; i < kChannels; ++i) {
+        Channel& ch = s_ch[i];
+        if (!ch.fader) continue;
+        const crosspad::Pad* pad = kit ? &kit->pads[i] : nullptr;
+        int32_t vol = pad ? pad->volume : max;
+        if (vol < 0) vol = 0;
+        if (vol > max) vol = max;
+        lv_slider_set_range(ch.fader, 0, max);
+        lv_slider_set_value(ch.fader, vol, LV_ANIM_OFF);
+        lv_label_set_text_fmt(ch.value, "%d", (int)vol);
+        lv_obj_set_style_text_color(ch.number, pad ? lv_color_hex(pad->color) : kText, 0);
+    }
+}
+
 void tick_cb(lv_timer_t*)
 {
+    crosspad::KitInfo* kit = current_kit();
+    if ((kit ? kit->path : std::string()) != s_kitPath) sync_from_kit();
     if (!s_padLogic) return;
     const int hit = s_padLogic->takeHitPad();
     if (hit < 0 || hit >= kChannels) return;
@@ -233,11 +255,10 @@ lv_obj_t* PadMixer_create(lv_obj_t* parent, App* app)
     lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_10, 0);
     lv_obj_center(backLabel);
 
-    lv_obj_t* title = lv_label_create(bar);
-    lv_label_set_text(title, kit ? kit->name.c_str() : "No kit");
-    lv_obj_set_style_text_color(title, kText, 0);
-    lv_obj_set_flex_grow(title, 1);
-    lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
+    s_title = lv_label_create(bar);
+    lv_obj_set_style_text_color(s_title, kText, 0);
+    lv_obj_set_flex_grow(s_title, 1);
+    lv_label_set_long_mode(s_title, LV_LABEL_LONG_DOT);
 
 #ifdef PAD_MIXER_USE_ENCODER
     if (s_encGroup) lv_group_add_obj(s_encGroup, backBtn);
@@ -315,6 +336,7 @@ lv_obj_t* PadMixer_create(lv_obj_t* parent, App* app)
     if (s_encGroup) lv_group_focus_obj(backBtn);
 #endif
 
+    sync_from_kit();
     s_timer = lv_timer_create(tick_cb, kTickMs, nullptr);
 
     if (app) {
@@ -348,6 +370,8 @@ void PadMixer_destroy(lv_obj_t* root)
     for (auto& ch : s_ch) ch = Channel{};
     s_selected = -1;
     s_root = nullptr;
+    s_title = nullptr;
+    s_kitPath.clear();
 
 #ifdef PAD_MIXER_USE_ENCODER
     // Hand navigation back before the group dies, or the launcher comes back

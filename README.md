@@ -8,8 +8,8 @@ Generated from the [CrossPad app template](https://github.com/CrossPad/crosspad-
 
 | Path | Purpose |
 |------|---------|
-| `src/PadMixerApp.cpp` | UI, animation timer, LVGL buttons + slider, `REGISTER_APP_PL` |
-| `src/PadMixerPadLogic.cpp` | Pad handler — records events for the GUI thread |
+| `src/PadMixerApp.cpp` | Sixteen faders on the current kit's pad volumes, applied through `PlatformServices::padMix`; follows a kit swap; `REGISTER_APP_PL` |
+| `src/PadMixerPadLogic.cpp` | Passes every pad call on to the base instrument and remembers the pad a finger hit, never the sequencer's playback |
 | `CMakeLists.txt` | ESP-IDF component; the PC simulator globs `src/` itself |
 | `crosspad-app.json` | Registry metadata (name, id, platforms, requirements) |
 

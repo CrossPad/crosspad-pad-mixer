@@ -1,5 +1,6 @@
 #include "crosspad-pad-mixer/PadMixerPadLogic.hpp"
 
+#include "crosspad/event/EventTypes.hpp"
 #include "crosspad/pad/PadManager.hpp"
 
 void PadMixerPadLogic::onActivate(crosspad::PadManager& padManager)
@@ -23,7 +24,9 @@ void PadMixerPadLogic::onPadPress(crosspad::PadManager& padManager,
     if (auto* b = base_.load()) b->onPadPress(padManager, padIdx, velocity);
     // Only a finger picks the channel; the loop playing back must not drag
     // the selection around under the fader being moved.
-    if (padIdx < 16 && !crosspad::PadManager::isSequencedPress()) hitPad_.store(padIdx);
+    if (padIdx < 16 && padManager.pressSource(padIdx) != crosspad::EventSource::SequencerCallback) {
+        hitPad_.store(padIdx);
+    }
 }
 
 void PadMixerPadLogic::onPadRelease(crosspad::PadManager& padManager,
