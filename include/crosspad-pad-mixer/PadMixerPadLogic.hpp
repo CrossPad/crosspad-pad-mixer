@@ -7,10 +7,13 @@
 /**
  * Pad handler for Pad Mixer.
  *
+ * The mixer owns the pads only to learn which one the player hit; the sound
+ * is the base instrument's. Every call is handed on to the base logic (the
+ * Sampler), so pads and a running sequence sound exactly as they do anywhere
+ * else -- and a hit the sequencer plays back is never taken as a selection.
+ *
  * Pad callbacks arrive on the pad/event thread, NOT on the LVGL task, so this
- * class touches no LVGL object. It only records what happened; the app's LVGL
- * timer drains the counters and does the drawing. That split is the reason the
- * app never needs lv_async_call from here.
+ * class touches no LVGL object; the app's LVGL timer reads the hit pad.
  */
 class PadMixerPadLogic : public crosspad::IPadLogicHandler {
 public:
@@ -22,13 +25,15 @@ public:
     void onPadPressure(crosspad::PadManager& padManager, uint8_t padIdx,
                        uint8_t pressure) override;
 
-    /// Pads pressed since the last call. Drained by the LVGL timer.
-    int takePendingSpawns() { return pendingSpawns_.exchange(0); }
-
-    /// Velocity of the most recent press (0..127), for spawn size/speed.
-    uint8_t lastVelocity() const { return lastVelocity_.load(); }
+    /// The pad a player hit since the last call, or -1. Drained by the LVGL
+    /// timer.
+    int takeHitPad() { return hitPad_.exchange(-1); }
 
 private:
-    std::atomic<int> pendingSpawns_{0};
-    std::atomic<uint8_t> lastVelocity_{100};
+    /// The base instrument, looked up on activation: it is whatever the
+    /// platform installed, and never this handler. A plain pointer, atomic
+    /// because the pad thread reads it: a base logic stays registered for
+    /// good (PadManager::setBasePadLogic()), so it cannot dangle.
+    std::atomic<crosspad::IPadLogicHandler*> base_{nullptr};
+    std::atomic<int> hitPad_{-1};
 };

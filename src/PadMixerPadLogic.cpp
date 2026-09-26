@@ -2,55 +2,38 @@
 
 #include "crosspad/pad/PadManager.hpp"
 
-namespace {
-// Pads light up in the app's accent colour while held.
-constexpr uint8_t kPadR = 0;
-constexpr uint8_t kPadG = 180;
-constexpr uint8_t kPadB = 255;
-} // namespace
-
 void PadMixerPadLogic::onActivate(crosspad::PadManager& padManager)
 {
-    for (uint8_t i = 0; i < 16; ++i) {
-        padManager.setPadColor(i, 0, 12, 24);   // dim water
-    }
+    auto base = padManager.getPadLogic(padManager.getBasePadLogic());
+    crosspad::IPadLogicHandler* b = (base.get() == this) ? nullptr : base.get();
+    if (b) b->onActivate(padManager);
+    base_.store(b);
+    hitPad_.store(-1);   // a hit from before the app opened is not a selection
 }
 
 void PadMixerPadLogic::onDeactivate(crosspad::PadManager& padManager)
 {
-    for (uint8_t i = 0; i < 16; ++i) {
-        padManager.setPadColor(i, 0, 0, 0);
-    }
+    crosspad::IPadLogicHandler* b = base_.exchange(nullptr);
+    if (b) b->onDeactivate(padManager);
 }
 
 void PadMixerPadLogic::onPadPress(crosspad::PadManager& padManager,
-                                       uint8_t padIdx, uint8_t velocity)
+                                  uint8_t padIdx, uint8_t velocity)
 {
-    if (padIdx >= 16) return;
-    padManager.setPadColor(padIdx, kPadR, kPadG, kPadB);
-
-    // Hand the event to the GUI as data, not as a drawing call: this runs on
-    // the pad thread and LVGL is not thread-safe.
-    lastVelocity_.store(velocity ? velocity : 100);
-    pendingSpawns_.fetch_add(1);
+    if (auto* b = base_.load()) b->onPadPress(padManager, padIdx, velocity);
+    // Only a finger picks the channel; the loop playing back must not drag
+    // the selection around under the fader being moved.
+    if (padIdx < 16 && !crosspad::PadManager::isSequencedPress()) hitPad_.store(padIdx);
 }
 
 void PadMixerPadLogic::onPadRelease(crosspad::PadManager& padManager,
-                                         uint8_t padIdx)
+                                    uint8_t padIdx)
 {
-    if (padIdx >= 16) return;
-    padManager.setPadColor(padIdx, 0, 12, 24);
+    if (auto* b = base_.load()) b->onPadRelease(padManager, padIdx);
 }
 
 void PadMixerPadLogic::onPadPressure(crosspad::PadManager& padManager,
-                                          uint8_t padIdx, uint8_t pressure)
+                                     uint8_t padIdx, uint8_t pressure)
 {
-    if (padIdx >= 16) return;
-    // Aftertouch: press harder, the pad glows brighter. Every handler must
-    // implement this — the interface has no default.
-    const uint8_t scale = pressure > 127 ? 127 : pressure;
-    padManager.setPadColor(padIdx,
-                           (uint8_t)(kPadR * scale / 127),
-                           (uint8_t)(kPadG * scale / 127),
-                           (uint8_t)(kPadB * scale / 127));
+    if (auto* b = base_.load()) b->onPadPressure(padManager, padIdx, pressure);
 }

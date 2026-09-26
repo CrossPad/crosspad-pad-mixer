@@ -12,6 +12,7 @@ idf_component_register(
     REQUIRES
         crosspad-core
         crosspad-gui
+        crosspad-sampler
         lvgl
 )
 
