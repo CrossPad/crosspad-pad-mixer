@@ -9,7 +9,9 @@
  *
  * Each fader is the current kit's per-pad volume, applied to the engine as it
  * moves, so it can be ridden against a running sequence. The pad under the
- * finger picks the channel; the sequence playing back never does.
+ * finger picks the channel; the sequence playing back never does, and neither
+ * does a pad while the encoder is clicked into a fader -- that one stays in
+ * hand while the pads are played against it.
  */
 
 #include "crosspad-pad-mixer/PadMixerApp.hpp"
@@ -162,6 +164,8 @@ void tick_cb(lv_timer_t*)
     const int hit = s_padLogic->takeHitPad();
     if (hit < 0 || hit >= kChannels) return;
 #ifdef PAD_MIXER_USE_ENCODER
+    // A fader being turned keeps the focus: the hit is dropped, not queued.
+    if (s_encGroup && lv_group_get_editing(s_encGroup)) return;
     // Through the group, so the encoder then turns the fader that was hit.
     if (s_encGroup) { lv_group_focus_obj(s_ch[hit].fader); return; }
 #endif

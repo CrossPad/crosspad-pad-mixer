@@ -1,6 +1,6 @@
 {
     "name": "crosspad-pad-mixer",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Sixteen faders, one per pad",
     "keywords": ["crosspad", "pad-mixer", "lvgl", "pad"],
     "dependencies": {
