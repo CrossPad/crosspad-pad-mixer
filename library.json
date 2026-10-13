@@ -1,12 +1,12 @@
 {
     "name": "crosspad-pad-mixer",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "license": "GPL-3.0-or-later",
     "description": "Sixteen faders, one per pad",
     "keywords": ["crosspad", "pad-mixer", "lvgl", "pad"],
     "dependencies": {
-        "crosspad-core": "*",
-        "crosspad-gui": "*"
+        "crosspad-core": "^2.0.0",
+        "crosspad-gui": "^2.0.0"
     },
     "build": {
         "appLibrary": true
