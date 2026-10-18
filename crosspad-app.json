@@ -11,11 +11,11 @@
     "pc"
   ],
   "requires": {
-    "crosspad-core": "^2.0.0",
-    "crosspad-gui": "^2.0.0"
+    "crosspad-core": ">=1.70.0,<3.0.0",
+    "crosspad-gui": ">=1.28.0,<3.0.0"
   },
   "changelog": [
-    "0.2.2: a root deleted before the app's teardown is handled (gui 2.0 calls destroy with none); requires core 2.0 and gui 2.0",
+    "0.2.2: a root deleted before the app's teardown is handled (gui 2.0 calls destroy with none); builds on core 1.70+/gui 1.28+ and on core/gui 2.x (>=1.70.0,<3.0.0 and >=1.28.0,<3.0.0) for the merge window",
     "0.2.1: a fader the encoder is clicked into keeps the focus while pads are played -- a hit no longer moves it to that pad's fader until the encoder lets go",
     "0.2.0: pad levels through IPadMix (core 1.21) instead of the Sampler's platform callbacks; faders follow a kit swapped while open; a sequenced hit is told apart with PadManager::pressSource()",
     "0.1.0: Generated from the CrossPad app template"
