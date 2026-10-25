@@ -1,7 +1,7 @@
 {
   "name": "Pad Mixer",
   "id": "pad-mixer",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Sixteen faders, one per pad",
   "category": "audio",
   "icon": "pad-mixer.png",
@@ -11,10 +11,11 @@
     "pc"
   ],
   "requires": {
-    "crosspad-core": ">=1.70.0,<3.0.0",
+    "crosspad-core": ">=2.22.0,<3.0.0",
     "crosspad-gui": ">=1.28.0,<3.0.0"
   },
   "changelog": [
+    "0.3.0: a meter beside each fader -- the pad's peak as the engine renders it, after the fader, -48..0 dBFS, falling ~60 dB/s, yellow from -6 dB, red for half a second after a clip; the engine measures only while the app is open (IPadMix::setMetering/takePeaks, core 2.22). Requires core 2.22.",
     "0.2.2: a root deleted before the app's teardown is handled (gui 2.0 calls destroy with none); builds on core 1.70+/gui 1.28+ and on core/gui 2.x (>=1.70.0,<3.0.0 and >=1.28.0,<3.0.0) for the merge window",
     "0.2.1: a fader the encoder is clicked into keeps the focus while pads are played -- a hit no longer moves it to that pad's fader until the encoder lets go",
     "0.2.0: pad levels through IPadMix (core 1.21) instead of the Sampler's platform callbacks; faders follow a kit swapped while open; a sequenced hit is told apart with PadManager::pressSource()",
