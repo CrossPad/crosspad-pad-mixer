@@ -12,6 +12,11 @@
  * finger picks the channel; the sequence playing back never does, and neither
  * does a pad while the encoder is clicked into a fader -- that one stays in
  * hand while the pads are played against it.
+ *
+ * Beside each track, at the strip's right edge, a meter: the pad's peak as
+ * the engine renders it, after the fader, -48..0 dBFS, falling ~60 dB/s,
+ * yellow from -6 dB and red for half a second after a clip. The engine measures
+ * only while the app is open (IPadMix::setMetering()).
  */
 
 #include "crosspad-pad-mixer/PadMixerApp.hpp"
@@ -35,6 +40,7 @@
 
 #include "lvgl.h"
 
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -53,6 +59,16 @@ namespace {
 
 constexpr int kChannels = 16;
 constexpr uint32_t kTickMs = 50;
+/// Meter scale: the bar runs kMeterSteps over kMeterFloorDb..0 dBFS.
+constexpr float kMeterFloorDb = -48.0f;
+constexpr int32_t kMeterSteps = 96;
+/// ~60 dB/s at 50 ms a tick: 3 dB, six steps -- full scale to nothing in
+/// under a second, so a hit reads as a hit.
+constexpr int32_t kMeterFall = 6;
+/// From -6 dB the bar turns yellow.
+constexpr int32_t kMeterHot = kMeterSteps - 12;
+/// A clip keeps the bar red for this many ticks (0.5 s).
+constexpr uint8_t kClipHoldTicks = 10;
 
 const lv_color_t kBg        = lv_color_hex(0x121212);
 const lv_color_t kStrip     = lv_color_hex(0x1c1c1c);
@@ -62,12 +78,19 @@ const lv_color_t kFill      = lv_color_hex(0x2f8fd8);
 const lv_color_t kCap       = lv_color_hex(0xd8d8d8);
 const lv_color_t kText      = lv_color_hex(0xb0b0b0);
 const lv_color_t kAccent    = lv_color_hex(0x3fa9f5);
+const lv_color_t kMeterOk   = lv_color_hex(0x3ec96b);
+const lv_color_t kMeterHotC = lv_color_hex(0xe8c33a);
+const lv_color_t kMeterClip = lv_color_hex(0xe84a3a);
 
 struct Channel {
     lv_obj_t* strip  = nullptr;
     lv_obj_t* value  = nullptr;
     lv_obj_t* fader  = nullptr;
     lv_obj_t* number = nullptr;
+    lv_obj_t* meter  = nullptr;
+    int32_t level    = 0;   ///< what the meter shows, in steps
+    uint8_t clip     = 0;   ///< ticks the clip colour has left
+    lv_color_t color = {};  ///< the indicator's colour now, so it is set on change only
 };
 
 Channel s_ch[kChannels];
@@ -156,10 +179,53 @@ void sync_from_kit()
     }
 }
 
+/// Linear peak (1.0 = full scale) to meter steps.
+int32_t meter_steps(float peak)
+{
+    if (peak <= 0.0f) return 0;
+    const float db = 20.0f * std::log10(peak);
+    if (db <= kMeterFloorDb) return 0;
+    if (db >= 0.0f) return kMeterSteps;
+    return (int32_t)((db - kMeterFloorDb) * (float)kMeterSteps / -kMeterFloorDb);
+}
+
+/// Each pad's peak since the last tick into its meter. A platform whose
+/// engine has no meters hides them.
+void update_meters()
+{
+    auto* mix = crosspad::getPlatformServices().padMix;
+    float peaks[kChannels] = {};
+    const bool have = mix && mix->takePeaks(peaks);
+    for (int i = 0; i < kChannels; ++i) {
+        Channel& ch = s_ch[i];
+        if (!ch.meter) continue;
+        if (!have) {
+            lv_obj_add_flag(ch.meter, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_remove_flag(ch.meter, LV_OBJ_FLAG_HIDDEN);
+        const int32_t hit = meter_steps(peaks[i]);
+        const int32_t fallen = ch.level > kMeterFall ? ch.level - kMeterFall : 0;
+        const int32_t level = hit > fallen ? hit : fallen;
+        if (peaks[i] >= 1.0f) ch.clip = kClipHoldTicks;
+        else if (ch.clip) --ch.clip;
+        const lv_color_t c = ch.clip ? kMeterClip : (level >= kMeterHot ? kMeterHotC : kMeterOk);
+        if (!lv_color_eq(c, ch.color)) {
+            ch.color = c;
+            lv_obj_set_style_bg_color(ch.meter, c, LV_PART_INDICATOR);
+        }
+        if (level != ch.level) {
+            ch.level = level;
+            lv_bar_set_value(ch.meter, level, LV_ANIM_OFF);
+        }
+    }
+}
+
 void tick_cb(lv_timer_t*)
 {
     crosspad::KitInfo* kit = current_kit();
     if ((kit ? kit->path : std::string()) != s_kitPath) sync_from_kit();
+    update_meters();
     if (!s_padLogic) return;
     const int hit = s_padLogic->takeHitPad();
     if (hit < 0 || hit >= kChannels) return;
@@ -215,6 +281,25 @@ lv_obj_t* make_fader(lv_obj_t* parent, int idx, int32_t max, int32_t value)
     lv_obj_add_event_cb(f, fader_changed_cb, LV_EVENT_VALUE_CHANGED, (void*)(intptr_t)idx);
     lv_obj_add_event_cb(f, fader_focused_cb, LV_EVENT_FOCUSED, (void*)(intptr_t)idx);
     return f;
+}
+
+/// A thin bar at the lane's right edge, clear of the fader's cap (13 px
+/// wide, centred) and outside the layout, so the fader keeps the lane.
+lv_obj_t* make_meter(lv_obj_t* lane)
+{
+    lv_obj_t* m = lv_bar_create(lane);
+    lv_obj_add_flag(m, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_remove_flag(m, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(m, 2, LV_PCT(100));
+    lv_obj_align(m, LV_ALIGN_RIGHT_MID, -1, 0);
+    lv_bar_set_range(m, 0, kMeterSteps);
+    lv_bar_set_value(m, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(m, kTrack, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(m, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(m, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(m, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(m, kMeterOk, LV_PART_INDICATOR);
+    return m;
 }
 
 } // namespace
@@ -315,6 +400,8 @@ lv_obj_t* PadMixer_create(lv_obj_t* parent, App* app)
                               LV_FLEX_ALIGN_CENTER);
         lv_obj_remove_flag(lane, LV_OBJ_FLAG_SCROLLABLE);
         ch.fader = make_fader(lane, i, max, vol);
+        ch.meter = make_meter(lane);
+        ch.color = kMeterOk;
 
         ch.number = lv_label_create(ch.strip);
         lv_obj_set_style_text_font(ch.number, &lv_font_montserrat_10, 0);
@@ -341,6 +428,7 @@ lv_obj_t* PadMixer_create(lv_obj_t* parent, App* app)
 #endif
 
     sync_from_kit();
+    if (auto* mix = crosspad::getPlatformServices().padMix) mix->setMetering(true);
     s_timer = lv_timer_create(tick_cb, kTickMs, nullptr);
 
     if (app) {
@@ -371,6 +459,7 @@ void PadMixer_destroy(lv_obj_t* root)
         lv_timer_delete(s_timer);
         s_timer = nullptr;
     }
+    if (auto* mix = crosspad::getPlatformServices().padMix) mix->setMetering(false);
     for (auto& ch : s_ch) ch = Channel{};
     s_selected = -1;
     s_root = nullptr;
